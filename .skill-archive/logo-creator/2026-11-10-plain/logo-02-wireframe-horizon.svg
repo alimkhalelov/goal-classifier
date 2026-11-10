@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" fill="none">
+  <!-- Container: Minimal Dark Slate Squircle -->
+  <rect width="128" height="128" rx="30" fill="#18181b"/>
+  
+  <!-- Subtle inner border -->
+  <rect x="1" y="1" width="126" height="126" rx="29" stroke="#ffffff" stroke-opacity="0.08" stroke-width="2"/>
+  
+  <!-- Row 1: Solid Checked Box + Solid Horizon Line (The Done/Plan) -->
+  <rect x="30" y="38" width="22" height="22" rx="6" fill="#ffffff"/>
+  <path d="M 37 49 L 41 53 L 47 44" stroke="#18181b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="62" y="46" width="36" height="6" rx="3" fill="#ffffff"/>
+  
+  <!-- Row 2: Wireframe Unchecked Box + Muted Horizon Line (The Regularity) -->
+  <rect x="30" y="68" width="22" height="22" rx="6" stroke="#71717a" stroke-width="2.5" fill="none"/>
+  <rect x="62" y="76" width="24" height="6" rx="3" fill="#52525b"/>
+</svg>

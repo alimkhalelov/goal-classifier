@@ -1,0 +1,1154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Goal Classifier</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Plus+Jakarta+Sans:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: #ffffff;
+            color: #171717;
+            overflow-x: hidden;
+        }
+        .font-mono-code {
+            font-family: 'Space Mono', monospace;
+        }
+        .font-editorial {
+            font-family: 'Instrument Serif', serif;
+        }
+        /* Wireframe minimal inputs - zero borders, subtle backgrounds */
+        .wf-input {
+            background-color: #f4f4f5;
+            border: none;
+            outline: none;
+            transition: background-color 0.15s ease;
+        }
+        .wf-input:focus {
+            background-color: #e4e4e7;
+        }
+        .wf-textarea {
+            resize: none;
+            overflow: hidden;
+            line-height: 1.45;
+            min-height: 40px;
+        }
+
+        /* Unified Rounded Square Black Checkboxes with white checkmark */
+        .wf-todo-check,
+        .wf-habit-check {
+            appearance: none;
+            -webkit-appearance: none;
+            width: 18px;
+            height: 18px;
+            background-color: #f4f4f5;
+            border-radius: 5px;
+            cursor: pointer;
+            position: relative;
+            transition: all 0.16s ease;
+            flex-shrink: 0;
+        }
+        .wf-todo-check:hover,
+        .wf-habit-check:hover {
+            background-color: #e4e4e7;
+        }
+        .wf-todo-check:checked,
+        .wf-habit-check:checked {
+            background-color: #18181b;
+            border-radius: 5px;
+        }
+        .wf-todo-check:checked::after,
+        .wf-habit-check:checked::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='4.5 9.5 7.5 12.5 13.5 6'/%3E%3C/svg%3E");
+            background-size: 13px 13px;
+            background-position: center;
+            background-repeat: no-repeat;
+        }
+
+        /* AI Sparkle button inside inputs - zero background */
+        .ai-sparkle {
+            background: transparent;
+            border: none;
+            outline: none;
+            cursor: pointer;
+            color: #a1a1aa;
+            transition: color 0.2s ease, transform 0.2s ease, opacity 0.15s ease;
+            user-select: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2px;
+            line-height: 1;
+        }
+        .ai-sparkle:hover {
+            color: #18181b;
+            transform: scale(1.2);
+        }
+        .ai-sparkle.loading {
+            animation: spin-pulse 1.1s infinite ease-in-out;
+            color: #18181b;
+            pointer-events: none;
+        }
+        @keyframes spin-pulse {
+            0% { transform: rotate(0deg) scale(1); opacity: 0.4; }
+            50% { transform: rotate(180deg) scale(1.3); opacity: 1; }
+            100% { transform: rotate(360deg) scale(1); opacity: 0.4; }
+        }
+        /* Clean date picker */
+        input[type="date"] {
+            position: relative;
+        }
+        input[type="date"]::-webkit-calendar-picker-indicator {
+            opacity: 0.35;
+            cursor: pointer;
+            transition: opacity 0.15s;
+            margin-left: 2px;
+            padding: 0;
+        }
+        input[type="date"]::-webkit-calendar-picker-indicator:hover {
+            opacity: 0.9;
+        }
+        /* Minimal wireframe modal backdrop */
+        .wf-backdrop {
+            background-color: rgba(255, 255, 255, 0.82);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+        }
+    </style>
+</head>
+<body class="w-full min-h-screen px-4 sm:px-8 py-6 sm:py-8 select-none">
+
+    <!-- Toast message instead of alert() -->
+    <div id="toast" class="fixed bottom-5 right-5 px-4 py-2 rounded-xl bg-zinc-900 text-white text-xs tracking-wide opacity-0 pointer-events-none transition-opacity duration-300 z-50"></div>
+
+    <!-- Ultra-minimal column header hints (hidden on mobile so they don't stack vertically, shown on xl) -->
+    <div class="hidden xl:grid xl:grid-cols-12 gap-6 pb-4 text-xs font-medium tracking-normal text-zinc-400">
+        <div class="xl:col-span-3 flex items-center pl-6">goal</div>
+        <div class="xl:col-span-2 flex items-center">deadline</div>
+        <div class="xl:col-span-3 flex items-center">plan</div>
+        <div class="xl:col-span-2 flex items-center">regularity</div>
+        <div class="xl:col-span-2 xl:text-right">diagnosis</div>
+    </div>
+
+    <!-- Rows Container -->
+    <div id="rows-container" class="w-full flex flex-col gap-7 xl:gap-5"></div>
+
+    <!-- Add Row Action & Subtle AI Config Trigger -->
+    <div class="w-full pt-8 xl:pl-6 flex items-center justify-between">
+        <button onclick="addNewRow()" class="text-zinc-400 hover:text-zinc-900 text-2xl font-light px-2 py-1 transition-colors" title="Add row">
+            +
+        </button>
+        <button onclick="openAiModal()" id="top-ai-btn" class="text-zinc-300 hover:text-zinc-900 text-sm p-2 rounded-xl transition-colors" title="AI Settings">
+            ✦
+        </button>
+    </div>
+
+    <!-- Wireframe AI Settings & Error Popup Modal -->
+    <div id="ai-modal" class="fixed inset-0 z-50 wf-backdrop hidden items-center justify-center p-4">
+        <div class="w-full max-w-md bg-white rounded-3xl p-6 sm:p-7 shadow-[0_20px_70px_-15px_rgba(0,0,0,0.08)] flex flex-col gap-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <span class="text-zinc-900 text-sm">✦</span>
+                    <span class="text-xs font-medium text-zinc-500">ai configuration</span>
+                </div>
+                <button onclick="closeAiModal()" class="text-zinc-300 hover:text-zinc-800 text-sm px-1 transition-colors">×</button>
+            </div>
+
+            <!-- Error Banner (shown automatically when an API call fails) -->
+            <div id="ai-modal-error" class="hidden rounded-2xl bg-zinc-100 px-3.5 py-2.5 text-xs text-zinc-800 font-mono-code break-words leading-relaxed"></div>
+
+            <!-- API Key Input -->
+            <div class="flex flex-col gap-1.5">
+                <div class="flex items-center justify-between text-[11px] text-zinc-400 px-1">
+                    <span>api key</span>
+                    <span id="detected-provider-badge" class="font-mono-code text-zinc-500">auto-detect</span>
+                </div>
+                <input
+                    id="ai-key-input"
+                    type="password"
+                    autocomplete="off"
+                    placeholder="paste gemini, openai, anthropic, deepseek, xai, meta or qwen key..."
+                    oninput="handleKeyInput(this.value)"
+                    class="wf-input w-full px-3.5 py-2.5 rounded-2xl text-xs text-zinc-900 font-mono-code placeholder-zinc-400"
+                />
+            </div>
+
+            <!-- Provider & Model Selection -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div class="flex flex-col gap-1.5">
+                    <span class="text-[11px] text-zinc-400 px-1">provider</span>
+                    <select id="ai-provider-select" onchange="handleProviderChange(this.value)" class="wf-input w-full px-3 py-2.5 rounded-2xl text-xs text-zinc-800 cursor-pointer">
+                        <option value="gemini">google deepmind</option>
+                        <option value="openai">openai</option>
+                        <option value="anthropic">anthropic</option>
+                        <option value="deepseek">deepseek</option>
+                        <option value="xai">xai (grok)</option>
+                        <option value="meta">meta / groq</option>
+                        <option value="qwen">alibaba cloud (qwen)</option>
+                        <option value="openrouter">openrouter</option>
+                    </select>
+                </div>
+                <div class="flex flex-col gap-1.5">
+                    <span class="text-[11px] text-zinc-400 px-1">model preset</span>
+                    <select id="ai-model-select" onchange="handleModelPresetChange(this.value)" class="wf-input w-full px-3 py-2.5 rounded-2xl text-xs text-zinc-800 cursor-pointer"></select>
+                </div>
+            </div>
+
+            <!-- Custom Model Input -->
+            <div class="flex flex-col gap-1.5">
+                <span class="text-[11px] text-zinc-400 px-1">model id (editable)</span>
+                <input
+                    id="ai-custom-model-input"
+                    type="text"
+                    placeholder="e.g. gemini-3.8-flash or gpt-6-astra"
+                    class="wf-input w-full px-3.5 py-2 rounded-2xl text-xs text-zinc-800 font-mono-code placeholder-zinc-400"
+                />
+            </div>
+
+            <!-- Test Status Feedback -->
+            <div id="ai-test-feedback" class="hidden text-[11px] font-mono-code px-1"></div>
+
+            <!-- Modal Actions -->
+            <div class="flex items-center justify-between pt-2">
+                <div class="flex items-center gap-2">
+                    <button
+                        id="ai-test-btn"
+                        onclick="testAiConnection()"
+                        class="wf-input hover:bg-zinc-200 text-zinc-800 text-xs px-3.5 py-2 rounded-2xl transition-colors font-mono-code"
+                    >test api</button>
+                    <button
+                        onclick="clearAiKey()"
+                        class="text-zinc-400 hover:text-zinc-700 text-xs px-2 py-2 transition-colors"
+                    >clear</button>
+                </div>
+                <button
+                    onclick="saveAiSettingsAndContinue()"
+                    class="bg-zinc-900 hover:bg-zinc-800 text-white text-xs px-5 py-2 rounded-2xl transition-colors"
+                >save</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const STORAGE_KEY = 'wireframe_goal_classifier_en_v2';
+        const AI_CRYPTO_STORAGE_KEY = 'wireframe_ai_encrypted_cfg_v1';
+        const apiKey = ""; // Canvas environment fallback key
+
+        const PROVIDER_MODELS = {
+            gemini: [
+                'gemini-3.8-flash',
+                'gemini-3.7-flash',
+                'gemini-3.6-flash',
+                'gemini-3.1-pro',
+                'gemini-3.1-flash-lite',
+                'gemini-3.1-flash-live'
+            ],
+            openai: [
+                'gpt-6-astra',
+                'gpt-6.1-sol',
+                'gpt-6-sol',
+                'gpt-6-luna',
+                'gpt-5-nano',
+                'o3',
+                'o4-mini'
+            ],
+            anthropic: [
+                'claude-opus-5.5',
+                'claude-sonnet-5.5',
+                'claude-sonnet-4.6',
+                'claude-haiku-5.5',
+                'claude-fable-5.2',
+                'claude-fable-5.1'
+            ],
+            deepseek: [
+                'deepseek-v4-pro',
+                'deepseek-v4-flash',
+                'deepseek-v4-vision-exp'
+            ],
+            xai: [
+                'grok-4.7',
+                'grok-4.20',
+                'grok-4.3',
+                'grok-build-0.1'
+            ],
+            meta: [
+                'muse-spark-1.3',
+                'llama-4-maverick',
+                'llama-4-scout',
+                'llama-3.3-70b-instruct'
+            ],
+            qwen: [
+                'qwen3.7-max',
+                'qwen3-coder',
+                'qwen3.5-397b'
+            ],
+            openrouter: [
+                'openai/gpt-6-astra',
+                'openai/gpt-6.1-sol',
+                'anthropic/claude-opus-5.5',
+                'anthropic/claude-sonnet-5.5',
+                'google/gemini-3.8-flash',
+                'google/gemini-3.1-pro',
+                'deepseek/deepseek-v4-pro',
+                'x-ai/grok-4.7',
+                'meta-llama/llama-4-maverick',
+                'qwen/qwen3.7-max'
+            ]
+        };
+
+        let aiConfig = {
+            apiKey: '',
+            provider: 'gemini',
+            model: 'gemini-3.8-flash'
+        };
+
+        let pendingAiAction = null;
+
+        // Web Crypto API AES-GCM local encryption helper
+        async function getCryptoKey() {
+            const rawSecret = ('wf_local_salt_' + (navigator.userAgent || 'default')).padEnd(32, '0').slice(0, 32);
+            const enc = new TextEncoder().encode(rawSecret);
+            return await crypto.subtle.importKey('raw', enc, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+        }
+
+        async function saveEncryptedAiConfig(cfg) {
+            try {
+                const key = await getCryptoKey();
+                const iv = crypto.getRandomValues(new Uint8Array(12));
+                const encoded = new TextEncoder().encode(JSON.stringify(cfg));
+                const cipherBuf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
+                const payload = {
+                    iv: Array.from(iv),
+                    data: Array.from(new Uint8Array(cipherBuf))
+                };
+                localStorage.setItem(AI_CRYPTO_STORAGE_KEY, JSON.stringify(payload));
+            } catch (e) {
+                console.error('Encryption failed:', e);
+            }
+        }
+
+        async function loadEncryptedAiConfig() {
+            try {
+                const raw = localStorage.getItem(AI_CRYPTO_STORAGE_KEY);
+                if (!raw) return;
+                const parsed = JSON.parse(raw);
+                const key = await getCryptoKey();
+                const iv = new Uint8Array(parsed.iv);
+                const cipherBytes = new Uint8Array(parsed.data);
+                const plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, cipherBytes);
+                const decoded = JSON.parse(new TextDecoder().decode(plainBuf));
+                if (decoded && typeof decoded === 'object') {
+                    aiConfig = {
+                        apiKey: decoded.apiKey || '',
+                        provider: decoded.provider || 'gemini',
+                        model: decoded.model || 'gemini-3.8-flash'
+                    };
+                }
+            } catch (e) {
+                console.warn('Could not decrypt stored AI config:', e);
+            }
+        }
+
+        // Auto-detect provider from API key prefix
+        function detectProviderFromKey(k) {
+            const clean = (k || '').trim();
+            if (!clean) return null;
+            if (clean.startsWith('AIza')) return 'gemini';
+            if (clean.startsWith('sk-ant-')) return 'anthropic';
+            if (clean.startsWith('xai-')) return 'xai';
+            if (clean.startsWith('gsk_') || clean.startsWith('LLM|')) return 'meta';
+            if (clean.startsWith('sk-or-')) return 'openrouter';
+            if (clean.startsWith('sk-ds-')) return 'deepseek';
+            if (clean.startsWith('sk-')) return 'openai';
+            return null;
+        }
+
+        function populateModelSelect(provider, selectedModel) {
+            const selectEl = document.getElementById('ai-model-select');
+            const customInput = document.getElementById('ai-custom-model-input');
+            const models = PROVIDER_MODELS[provider] || PROVIDER_MODELS.gemini;
+            selectEl.innerHTML = models.map(m => `<option value="${m}">${m}</option>`).join('');
+            const targetModel = selectedModel && models.includes(selectedModel) ? selectedModel : models[0];
+            selectEl.value = targetModel;
+            customInput.value = selectedModel || targetModel;
+        }
+
+        function handleKeyInput(val) {
+            const detected = detectProviderFromKey(val);
+            const badge = document.getElementById('detected-provider-badge');
+            if (detected) {
+                badge.textContent = `detected: ${detected}`;
+                const providerSelect = document.getElementById('ai-provider-select');
+                if (providerSelect.value !== detected) {
+                    providerSelect.value = detected;
+                    populateModelSelect(detected, PROVIDER_MODELS[detected][0]);
+                }
+            } else {
+                badge.textContent = val.trim() ? 'custom key' : 'auto-detect';
+            }
+        }
+
+        function handleProviderChange(provider) {
+            populateModelSelect(provider, PROVIDER_MODELS[provider][0]);
+        }
+
+        function handleModelPresetChange(model) {
+            document.getElementById('ai-custom-model-input').value = model;
+        }
+
+        function openAiModal(errorMessage = null, pendingAction = null) {
+            pendingAiAction = pendingAction;
+            const modal = document.getElementById('ai-modal');
+            const errBox = document.getElementById('ai-modal-error');
+            const testFeedback = document.getElementById('ai-test-feedback');
+
+            document.getElementById('ai-key-input').value = aiConfig.apiKey || '';
+            document.getElementById('ai-provider-select').value = aiConfig.provider || 'gemini';
+            populateModelSelect(aiConfig.provider || 'gemini', aiConfig.model);
+            handleKeyInput(aiConfig.apiKey || '');
+
+            if (errorMessage) {
+                errBox.textContent = `error: ${errorMessage}`;
+                errBox.classList.remove('hidden');
+            } else {
+                errBox.classList.add('hidden');
+                errBox.textContent = '';
+            }
+
+            testFeedback.classList.add('hidden');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeAiModal() {
+            const modal = document.getElementById('ai-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+            pendingAiAction = null;
+        }
+
+        async function clearAiKey() {
+            aiConfig.apiKey = '';
+            document.getElementById('ai-key-input').value = '';
+            document.getElementById('detected-provider-badge').textContent = 'auto-detect';
+            localStorage.removeItem(AI_CRYPTO_STORAGE_KEY);
+            showToast('API key cleared');
+        }
+
+        function readModalConfig() {
+            const rawKey = document.getElementById('ai-key-input').value.trim();
+            const provider = document.getElementById('ai-provider-select').value;
+            const customModel = document.getElementById('ai-custom-model-input').value.trim();
+            const fallbackModel = document.getElementById('ai-model-select').value;
+            return {
+                apiKey: rawKey,
+                provider: provider,
+                model: customModel || fallbackModel
+            };
+        }
+
+        async function saveAiSettingsAndContinue() {
+            aiConfig = readModalConfig();
+            await saveEncryptedAiConfig(aiConfig);
+            const actionToRun = pendingAiAction;
+            closeAiModal();
+            showToast('AI settings saved (encrypted)');
+            if (actionToRun) {
+                runAiFill(actionToRun.rowId, actionToRun.fieldType, actionToRun.todoIdx);
+            }
+        }
+
+        // Unified multi-provider AI requester
+        async function executeProviderRequest(cfg, systemInstruction, userPrompt, responseSchema) {
+            const activeKey = (cfg.apiKey || '').trim() || apiKey;
+            const provider = cfg.provider || 'gemini';
+            const model = cfg.model || (PROVIDER_MODELS[provider] && PROVIDER_MODELS[provider][0]) || 'gemini-3.8-flash';
+
+            if (!activeKey) {
+                throw new Error('Missing API key. Please enter your API key.');
+            }
+
+            if (provider === 'gemini') {
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(activeKey)}`;
+                const payload = {
+                    contents: [{ parts: [{ text: userPrompt }] }],
+                    systemInstruction: { parts: [{ text: systemInstruction }] },
+                    generationConfig: {
+                        responseMimeType: "application/json",
+                        responseSchema: responseSchema
+                    }
+                };
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    throw new Error(data?.error?.message || `Gemini HTTP ${res.status}`);
+                }
+                const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (!text) throw new Error('Empty response from Gemini');
+                return JSON.parse(text);
+            }
+
+            if (['openai', 'deepseek', 'xai', 'meta', 'qwen', 'openrouter'].includes(provider)) {
+                const endpointMap = {
+                    openai: 'https://api.openai.com/v1/chat/completions',
+                    deepseek: 'https://api.deepseek.com/chat/completions',
+                    xai: 'https://api.x.ai/v1/chat/completions',
+                    meta: activeKey.startsWith('gsk_')
+                        ? 'https://api.groq.com/openai/v1/chat/completions'
+                        : 'https://api.llama.com/compat/v1/chat/completions',
+                    qwen: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions',
+                    openrouter: 'https://openrouter.ai/api/v1/chat/completions'
+                };
+                const res = await fetch(endpointMap[provider], {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${activeKey}`
+                    },
+                    body: JSON.stringify({
+                        model: model,
+                        response_format: { type: 'json_object' },
+                        messages: [
+                            { role: 'system', content: systemInstruction },
+                            { role: 'user', content: userPrompt }
+                        ]
+                    })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    throw new Error(data?.error?.message || `${provider} HTTP ${res.status}`);
+                }
+                const text = data?.choices?.[0]?.message?.content;
+                if (!text) throw new Error(`Empty response from ${provider}`);
+                const jsonMatch = text.match(/\{[\s\S]*\}/);
+                return JSON.parse(jsonMatch ? jsonMatch[0] : text);
+            }
+
+            if (provider === 'anthropic') {
+                const res = await fetch('https://api.anthropic.com/v1/messages', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-api-key': activeKey,
+                        'anthropic-version': '2023-06-01',
+                        'anthropic-dangerous-direct-browser-access': 'true'
+                    },
+                    body: JSON.stringify({
+                        model: model,
+                        max_tokens: 512,
+                        system: systemInstruction,
+                        messages: [
+                            { role: 'user', content: userPrompt }
+                        ]
+                    })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    throw new Error(data?.error?.message || `Anthropic HTTP ${res.status}`);
+                }
+                const text = data?.content?.[0]?.text || '';
+                const jsonMatch = text.match(/\{[\s\S]*\}/);
+                if (!jsonMatch) throw new Error('Invalid JSON response from Anthropic');
+                return JSON.parse(jsonMatch[0]);
+            }
+
+            throw new Error(`Unsupported provider: ${provider}`);
+        }
+
+        async function testAiConnection() {
+            const btn = document.getElementById('ai-test-btn');
+            const feedback = document.getElementById('ai-test-feedback');
+            const errBox = document.getElementById('ai-modal-error');
+            const testCfg = readModalConfig();
+
+            errBox.classList.add('hidden');
+            feedback.classList.remove('hidden');
+            feedback.className = 'text-[11px] font-mono-code px-1 text-zinc-400';
+            feedback.textContent = 'testing connection...';
+            btn.disabled = true;
+
+            try {
+                const schema = {
+                    type: "OBJECT",
+                    properties: { status: { type: "STRING" } },
+                    required: ["status"]
+                };
+                const res = await executeProviderRequest(
+                    testCfg,
+                    'Respond strictly with JSON: {"status":"ok"}',
+                    'Ping test. Return {"status":"ok"}',
+                    schema
+                );
+                if (res && res.status) {
+                    feedback.className = 'text-[11px] font-mono-code px-1 text-zinc-900';
+                    feedback.textContent = `✓ connected (${testCfg.provider} / ${testCfg.model})`;
+                } else {
+                    throw new Error('Unexpected response format');
+                }
+            } catch (err) {
+                feedback.classList.add('hidden');
+                errBox.textContent = `test failed: ${err.message || 'Unknown error'}`;
+                errBox.classList.remove('hidden');
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        // Default initial rows
+        const defaultRows = [
+            {
+                id: 'row-1',
+                goal: 'Launch an independent SaaS product',
+                deadline: '',
+                todos: [{ text: '', done: false }],
+                habits: [false, false, false, false, false]
+            },
+            {
+                id: 'row-2',
+                goal: 'Run a 21km half marathon',
+                deadline: '2027-05-15',
+                todos: [{ text: '', done: false }],
+                habits: [false, false, false, false, false]
+            },
+            {
+                id: 'row-3',
+                goal: 'Learn Spanish to conversational B2',
+                deadline: '2027-09-01',
+                todos: [
+                    { text: 'Complete core grammar module', done: true },
+                    { text: 'Join weekly speaking club', done: false },
+                    { text: 'Master 1,500 active flashcards', done: false }
+                ],
+                habits: [false, false, false, false, false, false, false]
+            },
+            {
+                id: 'row-4',
+                goal: 'Write and publish a book on minimal design systems',
+                deadline: '2026-12-31',
+                todos: [
+                    { text: 'Outline 8 chapters structure', done: true },
+                    { text: 'Draft the first manuscript', done: true },
+                    { text: 'Curate visual layouts and grids', done: false }
+                ],
+                habits: [true, true, true, false, true, true, false, true, false]
+            }
+        ];
+
+        let rows = [];
+
+        function loadState() {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                        rows = parsed.map(r => ({
+                            ...r,
+                            todos: Array.isArray(r.todos) && r.todos.length > 0 ? r.todos : [{ text: '', done: false }],
+                            habits: Array.isArray(r.habits) && r.habits.length > 0 ? r.habits : [false, false, false, false, false]
+                        }));
+                        return;
+                    }
+                }
+            } catch (e) {
+                console.error('Failed to read localStorage:', e);
+            }
+            rows = JSON.parse(JSON.stringify(defaultRows));
+        }
+
+        function saveState() {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
+            } catch (e) {
+                console.error('Failed to save to localStorage:', e);
+            }
+        }
+
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.classList.remove('opacity-0');
+            t.classList.add('opacity-100');
+            clearTimeout(window.__toastTimer);
+            window.__toastTimer = setTimeout(() => {
+                t.classList.remove('opacity-100');
+                t.classList.add('opacity-0');
+            }, 2600);
+        }
+
+        // Core classification rule engine
+        function classifyRow(row) {
+            const hasGoal = row.goal && row.goal.trim().length > 0;
+            const hasDeadline = row.deadline && row.deadline.trim().length > 0;
+            const validTodos = (row.todos || []).filter(t => t.text && t.text.trim().length > 0);
+            const hasPlan = validTodos.length > 0;
+            const completedHabits = (row.habits || []).filter(Boolean).length;
+            const hasRegularity = completedHabits > 0;
+
+            if (!hasGoal) {
+                return { label: '—', tone: 'text-zinc-200 font-normal' };
+            }
+            if (hasGoal && !hasDeadline) {
+                return { label: 'fantasy', tone: 'text-zinc-400 italic font-normal' };
+            }
+            if (hasGoal && hasDeadline && !hasPlan) {
+                return { label: 'task', tone: 'text-zinc-600 font-normal' };
+            }
+            if (hasGoal && hasDeadline && hasPlan && !hasRegularity) {
+                return { label: 'strategy', tone: 'text-zinc-800 font-normal' };
+            }
+            return { label: 'success', tone: 'text-zinc-950 italic underline decoration-zinc-300 underline-offset-4' };
+        }
+
+        // Calculate remaining days from today
+        function getRemainingDaysLabel(dateStr) {
+            if (!dateStr || !dateStr.trim()) return '';
+            const parts = dateStr.split('-').map(Number);
+            if (parts.length !== 3) return '';
+            const target = new Date(parts[0], parts[1] - 1, parts[2]);
+            if (isNaN(target.getTime())) return '';
+
+            const now = new Date();
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const diffDays = Math.round((target - today) / (1000 * 60 * 60 * 24));
+
+            if (diffDays > 0) return `${diffDays}d left`;
+            if (diffDays === 0) return 'due today';
+            return `${Math.abs(diffDays)}d overdue`;
+        }
+
+        function escapeHtml(str) {
+            return (str || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        function autoResizeTextarea(el) {
+            if (!el) return;
+            el.style.height = 'auto';
+            el.style.height = Math.max(40, el.scrollHeight) + 'px';
+        }
+
+        function resizeAllTextareas() {
+            document.querySelectorAll('.wf-textarea').forEach(autoResizeTextarea);
+        }
+
+        function renderRows() {
+            const container = document.getElementById('rows-container');
+            container.innerHTML = '';
+
+            rows.forEach((row) => {
+                const diag = classifyRow(row);
+                const rowEl = document.createElement('div');
+                rowEl.className = 'grid grid-cols-1 xl:grid-cols-12 gap-3.5 xl:gap-6 items-start py-4 xl:py-2.5 group rounded-2xl xl:rounded-none bg-zinc-50/50 xl:bg-transparent p-3.5 xl:p-0';
+                rowEl.dataset.id = row.id;
+
+                const isGoalEmpty = !(row.goal && row.goal.trim().length > 0);
+                const isDeadlineEmpty = !(row.deadline && row.deadline.trim().length > 0);
+                const daysLabel = getRemainingDaysLabel(row.deadline);
+
+                const todosToRender = (row.todos && row.todos.length > 0)
+                    ? row.todos
+                    : [{ text: '', done: false }];
+
+                const todosHtml = todosToRender.map((todo, tIdx) => {
+                    const isTodoEmpty = !(todo.text && todo.text.trim().length > 0);
+                    return `
+                        <div class="flex items-center gap-2 w-full group/todo">
+                            <input
+                                type="checkbox"
+                                class="wf-todo-check"
+                                ${todo.done ? 'checked' : ''}
+                                onchange="toggleTodo('${row.id}', ${tIdx}, this.checked)"
+                            />
+                            <div class="relative flex-1 flex items-center">
+                                <input
+                                    type="text"
+                                    value="${escapeHtml(todo.text)}"
+                                    placeholder="step..."
+                                    oninput="updateTodoText('${row.id}', ${tIdx}, this.value, this)"
+                                    class="wf-input w-full pl-3 ${isTodoEmpty ? 'pr-8' : 'pr-3'} py-1.5 rounded-xl text-xs text-zinc-800 placeholder-zinc-400 ${todo.done ? 'line-through text-zinc-400' : ''}"
+                                />
+                                <button
+                                    id="ai-btn-plan-${row.id}-${tIdx}"
+                                    onclick="handleSparkleClick('${row.id}', 'plan', ${tIdx})"
+                                    class="ai-sparkle absolute right-2 text-xs ${isTodoEmpty ? '' : 'hidden'}"
+                                    title="AI: generate plan steps from context"
+                                >✦</button>
+                            </div>
+                            <button
+                                onclick="removeTodo('${row.id}', ${tIdx})"
+                                class="opacity-60 xl:opacity-0 xl:group-hover/todo:opacity-100 text-zinc-300 hover:text-zinc-600 text-xs px-1 transition-opacity"
+                                title="Remove step"
+                            >×</button>
+                        </div>
+                    `;
+                }).join('');
+
+                const habitsHtml = (row.habits || []).map((done, hIdx) => `
+                    <input
+                        type="checkbox"
+                        class="wf-habit-check"
+                        ${done ? 'checked' : ''}
+                        onchange="toggleHabit('${row.id}', ${hIdx}, this.checked)"
+                        title="Day ${hIdx + 1}"
+                    />
+                `).join('');
+
+                rowEl.innerHTML = `
+                    <!-- 1. Delete Row Cross + Goal auto-wrapping Textarea with inner ✦ -->
+                    <div class="xl:col-span-3 flex items-start gap-2 w-full">
+                        <button
+                            onclick="removeRow('${row.id}')"
+                            class="text-zinc-300 hover:text-zinc-700 text-sm w-4 pt-2.5 flex-shrink-0 transition-colors text-center"
+                            title="Delete row"
+                        >×</button>
+                        <div class="relative flex-1 flex items-start">
+                            <textarea
+                                rows="1"
+                                placeholder="goal..."
+                                oninput="autoResizeTextarea(this); updateGoal('${row.id}', this.value, this)"
+                                class="wf-input wf-textarea w-full pl-4 ${isGoalEmpty ? 'pr-9' : 'pr-4'} py-2.5 rounded-2xl text-sm text-zinc-900 placeholder-zinc-400 font-medium"
+                            >${escapeHtml(row.goal)}</textarea>
+                            <button
+                                id="ai-btn-goal-${row.id}"
+                                onclick="handleSparkleClick('${row.id}', 'goal')"
+                                class="ai-sparkle absolute right-3 top-2.5 text-sm ${isGoalEmpty ? '' : 'hidden'}"
+                                title="AI: suggest goal from context"
+                            >✦</button>
+                        </div>
+                    </div>
+
+                    <!-- 2. Compact Deadline Date Picker + Remaining Days counter -->
+                    <div class="xl:col-span-2 flex xl:flex-col items-center xl:items-start justify-between xl:justify-start gap-2 xl:gap-1 pl-6 xl:pl-0">
+                        <div class="wf-input inline-flex items-center rounded-2xl pl-3 pr-2.5 py-2 w-[162px] max-w-full">
+                            <input
+                                type="date"
+                                value="${escapeHtml(row.deadline)}"
+                                onchange="updateDeadline('${row.id}', this.value, this)"
+                                class="bg-transparent border-none outline-none w-full text-xs text-zinc-700 font-mono-code"
+                            />
+                            <button
+                                id="ai-btn-deadline-${row.id}"
+                                onclick="handleSparkleClick('${row.id}', 'deadline')"
+                                class="ai-sparkle ml-1 text-xs flex-shrink-0 ${isDeadlineEmpty ? '' : 'hidden'}"
+                                title="AI: suggest optimal deadline"
+                            >✦</button>
+                        </div>
+                        <span
+                            id="days-left-${row.id}"
+                            class="text-[11px] font-mono-code text-zinc-400 pl-2 ${daysLabel ? '' : 'hidden'}"
+                        >${escapeHtml(daysLabel)}</span>
+                    </div>
+
+                    <!-- 3. Plan (Todo List Checkboxes + inner ✦ when step is empty) -->
+                    <div class="xl:col-span-3 flex flex-col gap-1.5 w-full pl-6 xl:pl-0">
+                        <div class="flex flex-col gap-1.5 w-full" id="todos-list-${row.id}">
+                            ${todosHtml}
+                        </div>
+                        <div class="flex items-center pt-0.5">
+                            <button
+                                onclick="addTodo('${row.id}')"
+                                class="text-zinc-400 hover:text-zinc-900 text-sm font-medium px-1.5 py-0.5 transition-colors"
+                                title="Add step"
+                            >+</button>
+                        </div>
+                    </div>
+
+                    <!-- 4. Regularity (Habit Tracker Checkboxes strictly 7 per row + "+" button) -->
+                    <div class="xl:col-span-2 flex items-center justify-between xl:justify-start w-full pl-6 xl:pl-0 pt-1 xl:pt-1.5">
+                        <div class="grid grid-cols-7 gap-1.5 items-center w-fit">
+                            ${habitsHtml}
+                            <button
+                                onclick="addHabit('${row.id}')"
+                                class="w-[18px] h-[18px] flex items-center justify-center text-zinc-400 hover:text-zinc-900 text-sm font-medium transition-colors"
+                                title="Add habit checkbox"
+                            >+</button>
+                        </div>
+
+                        <!-- Mobile inline diagnosis preview -->
+                        <span
+                            id="diag-mobile-${row.id}"
+                            class="xl:hidden font-editorial text-2xl tracking-normal select-text transition-all duration-200 ${diag.tone}"
+                        >${diag.label}</span>
+                    </div>
+
+                    <!-- 5. Desktop Diagnosis Output (Editorial Serif Typography) -->
+                    <div class="hidden xl:flex xl:col-span-2 items-center justify-end pt-1">
+                        <span
+                            id="diag-${row.id}"
+                            class="font-editorial text-2xl sm:text-3xl tracking-normal select-text transition-all duration-200 ${diag.tone}"
+                        >${diag.label}</span>
+                    </div>
+                `;
+
+                container.appendChild(rowEl);
+            });
+
+            resizeAllTextareas();
+        }
+
+        function refreshDiagnosisDOM(rowId) {
+            const row = rows.find(r => r.id === rowId);
+            if (!row) return;
+            const diag = classifyRow(row);
+            const elDesktop = document.getElementById(`diag-${rowId}`);
+            if (elDesktop) {
+                elDesktop.textContent = diag.label;
+                elDesktop.className = `font-editorial text-2xl sm:text-3xl tracking-normal select-text transition-all duration-200 ${diag.tone}`;
+            }
+            const elMobile = document.getElementById(`diag-mobile-${rowId}`);
+            if (elMobile) {
+                elMobile.textContent = diag.label;
+                elMobile.className = `xl:hidden font-editorial text-2xl tracking-normal select-text transition-all duration-200 ${diag.tone}`;
+            }
+        }
+
+        function updateGoal(rowId, value, inputEl) {
+            const row = rows.find(r => r.id === rowId);
+            if (!row) return;
+            row.goal = value;
+
+            const btn = document.getElementById(`ai-btn-goal-${rowId}`);
+            const isEmpty = !(value && value.trim().length > 0);
+            if (btn) btn.classList.toggle('hidden', !isEmpty);
+            if (inputEl) {
+                inputEl.classList.toggle('pr-9', isEmpty);
+                inputEl.classList.toggle('pr-4', !isEmpty);
+            }
+
+            saveState();
+            refreshDiagnosisDOM(rowId);
+        }
+
+        function updateDeadline(rowId, value, inputEl) {
+            const row = rows.find(r => r.id === rowId);
+            if (!row) return;
+            row.deadline = value;
+
+            const btn = document.getElementById(`ai-btn-deadline-${rowId}`);
+            const isEmpty = !(value && value.trim().length > 0);
+            if (btn) btn.classList.toggle('hidden', !isEmpty);
+
+            const daysEl = document.getElementById(`days-left-${rowId}`);
+            if (daysEl) {
+                const label = getRemainingDaysLabel(value);
+                daysEl.textContent = label;
+                daysEl.classList.toggle('hidden', !label);
+            }
+
+            saveState();
+            refreshDiagnosisDOM(rowId);
+        }
+
+        function updateTodoText(rowId, idx, value, inputEl) {
+            const row = rows.find(r => r.id === rowId);
+            if (!row) return;
+            if (!row.todos[idx]) row.todos[idx] = { text: '', done: false };
+            row.todos[idx].text = value;
+
+            const btn = document.getElementById(`ai-btn-plan-${rowId}-${idx}`);
+            const isEmpty = !(value && value.trim().length > 0);
+            if (btn) btn.classList.toggle('hidden', !isEmpty);
+            if (inputEl) {
+                inputEl.classList.toggle('pr-8', isEmpty);
+                inputEl.classList.toggle('pr-3', !isEmpty);
+            }
+
+            saveState();
+            refreshDiagnosisDOM(rowId);
+        }
+
+        function toggleTodo(rowId, idx, checked) {
+            const row = rows.find(r => r.id === rowId);
+            if (!row || !row.todos[idx]) return;
+            row.todos[idx].done = checked;
+            saveState();
+            renderRows();
+        }
+
+        function addTodo(rowId) {
+            const row = rows.find(r => r.id === rowId);
+            if (!row) return;
+            row.todos.push({ text: '', done: false });
+            saveState();
+            renderRows();
+        }
+
+        function removeTodo(rowId, idx) {
+            const row = rows.find(r => r.id === rowId);
+            if (!row) return;
+            row.todos.splice(idx, 1);
+            if (row.todos.length === 0) {
+                row.todos.push({ text: '', done: false });
+            }
+            saveState();
+            renderRows();
+        }
+
+        function toggleHabit(rowId, idx, checked) {
+            const row = rows.find(r => r.id === rowId);
+            if (!row) return;
+            row.habits[idx] = checked;
+            saveState();
+            refreshDiagnosisDOM(rowId);
+        }
+
+        function addHabit(rowId) {
+            const row = rows.find(r => r.id === rowId);
+            if (!row) return;
+            row.habits.push(false);
+            saveState();
+            renderRows();
+        }
+
+        function addNewRow() {
+            rows.push({
+                id: 'row-' + Date.now(),
+                goal: '',
+                deadline: '',
+                todos: [{ text: '', done: false }],
+                habits: [false, false, false, false, false]
+            });
+            saveState();
+            renderRows();
+        }
+
+        function removeRow(rowId) {
+            if (rows.length <= 1) {
+                rows[0] = {
+                    id: rows[0].id,
+                    goal: '',
+                    deadline: '',
+                    todos: [{ text: '', done: false }],
+                    habits: [false, false, false, false, false]
+                };
+            } else {
+                rows = rows.filter(r => r.id !== rowId);
+            }
+            saveState();
+            renderRows();
+        }
+
+        // Click on ✦: If no API key is configured, open AI modal first
+        function handleSparkleClick(rowId, fieldType, todoIdx = 0) {
+            const hasKey = (aiConfig.apiKey && aiConfig.apiKey.trim().length > 0) || (apiKey && apiKey.trim().length > 0);
+            if (!hasKey) {
+                openAiModal(null, { rowId, fieldType, todoIdx });
+                return;
+            }
+            runAiFill(rowId, fieldType, todoIdx);
+        }
+
+        // AI Context-Aware Field Generator
+        async function runAiFill(rowId, fieldType, todoIdx = 0) {
+            const targetRow = rows.find(r => r.id === rowId);
+            if (!targetRow) return;
+
+            const btnId = fieldType === 'plan'
+                ? `ai-btn-plan-${rowId}-${todoIdx}`
+                : `ai-btn-${fieldType}-${rowId}`;
+            const btn = document.getElementById(btnId);
+            if (btn) btn.classList.add('loading');
+
+            const allContext = rows.map((r, i) => ({
+                rowIndex: i + 1,
+                isTargetRow: r.id === rowId,
+                goal: r.goal || '',
+                deadline: r.deadline || '',
+                planSteps: (r.todos || []).map(t => t.text).filter(Boolean),
+                habitDaysChecked: (r.habits || []).filter(Boolean).length,
+                totalHabitSlots: (r.habits || []).length
+            }));
+
+            const todayStr = new Date().toISOString().split('T')[0];
+
+            let systemInstruction = `You are a concise productivity architect inside a minimalist goal classifier app.
+Today's date is ${todayStr}.
+Always respond in English with valid JSON matching the requested schema. Keep texts short, concrete, and actionable.`;
+
+            let userPrompt = '';
+            let responseSchema = {};
+
+            if (fieldType === 'goal') {
+                userPrompt = `Context of all rows in the user's workspace:\n${JSON.stringify(allContext, null, 2)}\n
+Fill the "goal" for the target row (isTargetRow: true).
+- If the target row already has planSteps or a deadline, infer a clear, specific, inspiring goal that matches those steps/deadline.
+- Otherwise, propose a complementary, realistic personal or professional goal inspired by the style of the other rows.
+Return JSON: {"goal": "string (4-8 words max)"}`;
+                responseSchema = {
+                    type: "OBJECT",
+                    properties: { goal: { type: "STRING" } },
+                    required: ["goal"]
+                };
+            } else if (fieldType === 'deadline') {
+                userPrompt = `Context of all rows in the user's workspace:\n${JSON.stringify(allContext, null, 2)}\n
+Today is ${todayStr}.
+Suggest a realistic target deadline date in YYYY-MM-DD format (strictly in the future after ${todayStr}) for the target row (isTargetRow: true) based on its goal and planSteps.
+Return JSON: {"deadline": "YYYY-MM-DD"}`;
+                responseSchema = {
+                    type: "OBJECT",
+                    properties: { deadline: { type: "STRING" } },
+                    required: ["deadline"]
+                };
+            } else if (fieldType === 'plan') {
+                userPrompt = `Context of all rows in the user's workspace:\n${JSON.stringify(allContext, null, 2)}\n
+Generate 3 concise, concrete action steps (todo checklist items) for the target row (isTargetRow: true) based on its goal ("${targetRow.goal}") and deadline ("${targetRow.deadline}").
+If the goal is empty, infer from surrounding rows.
+Return JSON: {"steps": ["step 1", "step 2", "step 3"]}`;
+                responseSchema = {
+                    type: "OBJECT",
+                    properties: {
+                        steps: {
+                            type: "ARRAY",
+                            items: { type: "STRING" }
+                        }
+                    },
+                    required: ["steps"]
+                };
+            }
+
+            try {
+                const parsed = await executeProviderRequest(aiConfig, systemInstruction, userPrompt, responseSchema);
+
+                if (fieldType === 'goal' && parsed.goal) {
+                    targetRow.goal = parsed.goal.trim();
+                } else if (fieldType === 'deadline' && parsed.deadline) {
+                    targetRow.deadline = parsed.deadline.trim();
+                } else if (fieldType === 'plan' && Array.isArray(parsed.steps) && parsed.steps.length > 0) {
+                    const existingNonEmpty = (targetRow.todos || []).filter(t => t.text && t.text.trim().length > 0);
+                    const newTodos = parsed.steps.map(s => ({ text: s.trim(), done: false }));
+                    targetRow.todos = existingNonEmpty.length > 0 ? [...existingNonEmpty, ...newTodos] : newTodos;
+                }
+
+                saveState();
+                renderRows();
+            } catch (err) {
+                console.error('AI generation error:', err);
+                openAiModal(err.message || 'Failed to generate with current API key / model', { rowId, fieldType, todoIdx });
+            } finally {
+                if (btn) btn.classList.remove('loading');
+            }
+        }
+
+        window.addEventListener('resize', resizeAllTextareas);
+
+        window.onload = async function () {
+            await loadEncryptedAiConfig();
+            loadState();
+            renderRows();
+        };
+    </script>
+</body>
+</html>
